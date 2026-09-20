@@ -6,8 +6,22 @@ function now() {
   return Math.floor(Date.now() / 1000);
 }
 
+function isLifetime(user) {
+  return Number(user?.lifetime) === 1;
+}
+
 function normalizeUser(user) {
   if (!user) return null;
+
+  // Lifetime accounts never count down.
+  if (isLifetime(user)) {
+    return {
+      ...user,
+      lifetime: 1,
+      paused: 0,
+      timer_started_at: null
+    };
+  }
 
   const stored = Math.max(
     0,
@@ -35,6 +49,7 @@ function normalizeUser(user) {
 
   return {
     ...user,
+    lifetime: 0,
     time_remaining: remaining
   };
 }
@@ -66,6 +81,33 @@ async function rawRoblox(env, robloxUserId) {
 async function settle(env, raw) {
   if (!raw) return null;
 
+  // Lifetime accounts must never have an active countdown.
+  if (isLifetime(raw)) {
+    if (
+      Number(raw.paused) !== 0 ||
+      raw.timer_started_at !== null
+    ) {
+      await env.DB
+        .prepare(`
+          UPDATE users
+          SET
+            paused = 0,
+            timer_started_at = NULL,
+            updated_at = unixepoch()
+          WHERE id = ?
+        `)
+        .bind(Number(raw.id))
+        .run();
+    }
+
+    return {
+      ...raw,
+      lifetime: 1,
+      paused: 0,
+      timer_started_at: null
+    };
+  }
+
   const user = normalizeUser(raw);
 
   if (
@@ -74,6 +116,8 @@ async function settle(env, raw) {
   ) {
     const remaining =
       Number(user.time_remaining);
+
+    const settledAt = now();
 
     await env.DB
       .prepare(`
@@ -90,14 +134,14 @@ async function settle(env, raw) {
       `)
       .bind(
         remaining,
-        remaining > 0 ? now() : null,
+        remaining > 0 ? settledAt : null,
         remaining,
         Number(raw.id)
       )
       .run();
 
     user.timer_started_at =
-      remaining > 0 ? now() : null;
+      remaining > 0 ? settledAt : null;
 
     if (remaining <= 0) {
       user.paused = 1;
@@ -184,9 +228,10 @@ export async function linkAccount(
           roblox_display_name,
           time_remaining,
           paused,
-          timer_started_at
+          timer_started_at,
+          lifetime
         )
-        VALUES (?, ?, ?, ?, 0, 1, NULL)
+        VALUES (?, ?, ?, ?, 0, 1, NULL, 0)
       `)
       .bind(
         discordId,
@@ -278,6 +323,23 @@ export async function setPaused(
     return false;
   }
 
+  // Lifetime is permanently active.
+  if (isLifetime(user)) {
+    await env.DB
+      .prepare(`
+        UPDATE users
+        SET
+          paused = 0,
+          timer_started_at = NULL,
+          updated_at = unixepoch()
+        WHERE discord_id = ?
+      `)
+      .bind(String(discordId))
+      .run();
+
+    return true;
+  }
+
   const remaining =
     Math.max(
       0,
@@ -344,6 +406,11 @@ export async function setTime(
     );
 
   if (!user) return null;
+
+  // A normal timer update cannot remove lifetime.
+  if (isLifetime(user)) {
+    return user;
+  }
 
   seconds =
     Math.max(
@@ -415,6 +482,14 @@ export async function addTime(
     return {
       ok: false,
       error: "USER_NOT_FOUND"
+    };
+  }
+
+  if (isLifetime(user)) {
+    return {
+      ok: false,
+      error: "LIFETIME_ACCOUNT",
+      lifetime: true
     };
   }
 
@@ -579,21 +654,127 @@ export async function redeemCode(
     };
   }
 
-  const seconds =
-    Math.max(
-      0,
-      Math.floor(
-        Number(redeem.seconds) || 0
-      )
-    );
+  const lifetime =
+    Number(redeem.lifetime) === 1;
 
-  if (seconds <= 0) {
+  const seconds =
+    lifetime
+      ? 0
+      : Math.max(
+          0,
+          Math.floor(
+            Number(redeem.seconds) || 0
+          )
+        );
+
+  if (
+    !lifetime &&
+    seconds <= 0
+  ) {
     return {
       ok: false,
       error: "INVALID_CODE"
     };
   }
 
+  if (
+    lifetime &&
+    isLifetime(user)
+  ) {
+    return {
+      ok: false,
+      error: "ALREADY_LIFETIME"
+    };
+  }
+
+  // Lifetime redemption is handled in one D1 batch so the code claim
+  // and account upgrade happen together.
+  if (lifetime) {
+    const claim =
+      env.DB
+        .prepare(`
+          UPDATE redeem_codes
+          SET
+            redeemed = 1,
+            redeemed_by_discord_id = ?,
+            redeemed_by_roblox_user_id = ?,
+            redeemed_at = unixepoch()
+          WHERE id = ?
+            AND redeemed = 0
+        `)
+        .bind(
+          String(discordId),
+          Number(user.roblox_user_id),
+          Number(redeem.id)
+        );
+
+    const upgrade =
+      env.DB
+        .prepare(`
+          UPDATE users
+          SET
+            lifetime = 1,
+            paused = 0,
+            timer_started_at = NULL,
+            updated_at = unixepoch()
+          WHERE discord_id = ?
+        `)
+        .bind(
+          String(discordId)
+        );
+
+    const transaction =
+      env.DB
+        .prepare(`
+          INSERT INTO transactions (
+            discord_id,
+            roblox_user_id,
+            type,
+            amount,
+            balance_after,
+            details
+          )
+          VALUES (?, ?, ?, ?, ?, ?)
+        `)
+        .bind(
+          String(discordId),
+          Number(user.roblox_user_id),
+          "redeem_lifetime",
+          0,
+          Math.max(
+            0,
+            Number(user.time_remaining) || 0
+          ),
+          `Redeemed lifetime code ${code}`
+        );
+
+    const results =
+      await env.DB.batch([
+        claim,
+        upgrade,
+        transaction
+      ]);
+
+    if (
+      !results?.[0] ||
+      results[0].meta.changes !== 1
+    ) {
+      return {
+        ok: false,
+        error: "ALREADY_REDEEMED"
+      };
+    }
+
+    return {
+      ok: true,
+      code,
+      lifetime: true,
+      seconds: null,
+      balance: null
+    };
+  }
+
+  // Claim the normal time code.
   const claim =
     await env.DB
       .prepare(`
@@ -634,13 +815,16 @@ export async function redeemCode(
   if (!result.ok) {
     return {
       ok: false,
-      error: result.error || "REDEEM_FAILED"
+      error:
+        result.error ||
+        "REDEEM_FAILED"
     };
   }
 
   return {
     ok: true,
     code,
+    lifetime: false,
     seconds,
     balance:
       result.newBalance
@@ -691,19 +875,26 @@ export async function generateRedeemCode(
   seconds,
   options = {}
 ) {
-  seconds =
-    Math.floor(
-      Number(seconds)
-    );
+  const lifetime =
+    options.lifetime === true;
 
-  if (
-    !Number.isFinite(seconds) ||
-    seconds < 60
-  ) {
-    return {
-      ok: false,
-      error: "INVALID_DURATION"
-    };
+  if (lifetime) {
+    seconds = 1;
+  } else {
+    seconds =
+      Math.floor(
+        Number(seconds)
+      );
+
+    if (
+      !Number.isFinite(seconds) ||
+      seconds < 60
+    ) {
+      return {
+        ok: false,
+        error: "INVALID_DURATION"
+      };
+    }
   }
 
   const discordId =
@@ -732,22 +923,28 @@ export async function generateRedeemCode(
             seconds,
             discord_id,
             roblox_user_id,
-            redeemed
+            redeemed,
+            lifetime
           )
-          VALUES (?, ?, ?, ?, 0)
+          VALUES (?, ?, ?, ?, 0, ?)
         `)
         .bind(
           code,
           seconds,
           discordId,
-          robloxUserId
+          robloxUserId,
+          lifetime ? 1 : 0
         )
         .run();
 
       return {
         ok: true,
         code,
-        seconds,
+        seconds:
+          lifetime
+            ? null
+            : seconds,
+        lifetime,
         discordId,
         robloxUserId
       };
