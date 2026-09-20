@@ -12,8 +12,12 @@ import {
   handleRobloxRequest
 } from "./roblox.js";
 
+import {
+  handleAdminRequest
+} from "./admin.js";
+
 // ============================================================
-// HELPERS
+// RESPONSE HELPERS
 // ============================================================
 
 function json(data, status = 200) {
@@ -32,17 +36,17 @@ function json(data, status = 200) {
   );
 }
 
-function text(
-  content,
-  status = 200
-) {
+function text(content, status = 200) {
   return new Response(
     content,
     {
       status,
       headers: {
         "content-type":
-          "text/plain; charset=UTF-8"
+          "text/plain; charset=UTF-8",
+
+        "cache-control":
+          "no-store"
       }
     }
   );
@@ -79,15 +83,26 @@ async function verifyDiscordRequest(
   const body =
     await request.text();
 
-  let valid = false;
-
   try {
-    valid = await verifyKey(
-      body,
-      signature,
-      timestamp,
-      env.DISCORD_PUBLIC_KEY
-    );
+    const valid =
+      await verifyKey(
+        body,
+        signature,
+        timestamp,
+        env.DISCORD_PUBLIC_KEY
+      );
+
+    if (!valid) {
+      return {
+        valid: false
+      };
+    }
+
+    return {
+      valid: true,
+      interaction:
+        JSON.parse(body)
+    };
   } catch (error) {
     console.error(
       "Discord verification error:",
@@ -98,28 +113,10 @@ async function verifyDiscordRequest(
       valid: false
     };
   }
-
-  if (!valid) {
-    return {
-      valid: false
-    };
-  }
-
-  try {
-    return {
-      valid: true,
-      interaction:
-        JSON.parse(body)
-    };
-  } catch {
-    return {
-      valid: false
-    };
-  }
 }
 
 // ============================================================
-// DISCORD INTERACTIONS
+// DISCORD INTERACTION ENDPOINT
 // ============================================================
 
 async function handleDiscord(
@@ -149,8 +146,7 @@ async function handleDiscord(
   const interaction =
     verified.interaction;
 
-  // Discord validates the endpoint
-  // using a PING interaction.
+  // Discord uses PING to verify the endpoint.
   if (
     interaction.type ===
     InteractionType.PING
@@ -161,6 +157,7 @@ async function handleDiscord(
     });
   }
 
+  // Slash command
   if (
     interaction.type ===
     InteractionType.APPLICATION_COMMAND
@@ -209,14 +206,15 @@ async function handleDiscord(
 }
 
 // ============================================================
-// HEALTH CHECK
+// HEALTH
 // ============================================================
 
 function health() {
   return json({
     ok: true,
     service: "Eternal TP",
-    version: "2.0.0"
+    version: "2.0.0",
+    status: "online"
   });
 }
 
@@ -237,9 +235,9 @@ export default {
       const pathname =
         url.pathname;
 
-      // ----------------------------------------
-      // Homepage
-      // ----------------------------------------
+      // ======================================================
+      // HOME
+      // ======================================================
 
       if (
         pathname === "/" &&
@@ -247,31 +245,26 @@ export default {
       ) {
         return json({
           ok: true,
-          service:
-            "Eternal TP",
-
-          version:
-            "2.0.0",
-
-          status:
-            "online"
+          service: "Eternal TP",
+          version: "2.0.0",
+          status: "online"
         });
       }
 
-      // ----------------------------------------
-      // Health
-      // ----------------------------------------
+      // ======================================================
+      // HEALTH CHECK
+      // ======================================================
 
       if (
-        pathname ===
-        "/health"
+        pathname === "/health" &&
+        request.method === "GET"
       ) {
         return health();
       }
 
-      // ----------------------------------------
-      // Discord
-      // ----------------------------------------
+      // ======================================================
+      // DISCORD
+      // ======================================================
 
       if (
         pathname ===
@@ -283,9 +276,9 @@ export default {
         );
       }
 
-      // ----------------------------------------
-      // Roblox API
-      // ----------------------------------------
+      // ======================================================
+      // ROBLOX API
+      // ======================================================
 
       if (
         pathname.startsWith(
@@ -299,15 +292,30 @@ export default {
         );
       }
 
-      // ----------------------------------------
-      // 404
-      // ----------------------------------------
+      // ======================================================
+      // ADMIN API
+      // ======================================================
+
+      if (
+        pathname.startsWith(
+          "/api/admin/"
+        )
+      ) {
+        return handleAdminRequest(
+          request,
+          env,
+          pathname
+        );
+      }
+
+      // ======================================================
+      // NOT FOUND
+      // ======================================================
 
       return json(
         {
           ok: false,
-          error:
-            "NOT_FOUND"
+          error: "NOT_FOUND"
         },
         404
       );
