@@ -367,6 +367,7 @@ export async function setTime(
     `)
     .bind(
       seconds,
+
       seconds <= 0
         ? 1
         : Number(user.paused),
@@ -630,12 +631,146 @@ export async function redeemCode(
       `Redeemed ${code}`
     );
 
+  if (!result.ok) {
+    return {
+      ok: false,
+      error: result.error || "REDEEM_FAILED"
+    };
+  }
+
   return {
     ok: true,
     code,
     seconds,
     balance:
       result.newBalance
+  };
+}
+
+// ============================================================
+// GENERATE REDEEM CODE
+// ============================================================
+
+const CODE_ALPHABET =
+  "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function randomCodePart(length = 4) {
+  const bytes =
+    new Uint8Array(length);
+
+  crypto.getRandomValues(bytes);
+
+  let output = "";
+
+  for (
+    let index = 0;
+    index < length;
+    index++
+  ) {
+    output +=
+      CODE_ALPHABET[
+        bytes[index] %
+        CODE_ALPHABET.length
+      ];
+  }
+
+  return output;
+}
+
+function createRedeemCodeString() {
+  return [
+    "ET",
+    randomCodePart(4),
+    randomCodePart(4),
+    randomCodePart(4)
+  ].join("-");
+}
+
+export async function generateRedeemCode(
+  env,
+  seconds,
+  options = {}
+) {
+  seconds =
+    Math.floor(
+      Number(seconds)
+    );
+
+  if (
+    !Number.isFinite(seconds) ||
+    seconds < 60
+  ) {
+    return {
+      ok: false,
+      error: "INVALID_DURATION"
+    };
+  }
+
+  const discordId =
+    options.discordId
+      ? String(options.discordId)
+      : null;
+
+  const robloxUserId =
+    options.robloxUserId
+      ? Number(options.robloxUserId)
+      : null;
+
+  for (
+    let attempt = 0;
+    attempt < 10;
+    attempt++
+  ) {
+    const code =
+      createRedeemCodeString();
+
+    try {
+      await env.DB
+        .prepare(`
+          INSERT INTO redeem_codes (
+            code,
+            seconds,
+            discord_id,
+            roblox_user_id,
+            redeemed
+          )
+          VALUES (?, ?, ?, ?, 0)
+        `)
+        .bind(
+          code,
+          seconds,
+          discordId,
+          robloxUserId
+        )
+        .run();
+
+      return {
+        ok: true,
+        code,
+        seconds,
+        discordId,
+        robloxUserId
+      };
+    } catch (error) {
+      const message =
+        String(
+          error?.message ||
+          error
+        ).toLowerCase();
+
+      if (
+        message.includes("unique")
+      ) {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  return {
+    ok: false,
+    error: "CODE_GENERATION_FAILED"
   };
 }
 
@@ -687,9 +822,11 @@ export async function startGameSession(
       `)
       .bind(
         Number(robloxUserId),
+
         placeId
           ? String(placeId)
           : null,
+
         jobId
           ? String(jobId)
           : null
