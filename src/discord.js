@@ -23,10 +23,6 @@ import {
 const CHANNEL_MESSAGE = 4;
 const EPHEMERAL = 64;
 
-// ============================================================
-// /generate ROLE PERMISSION
-// ============================================================
-
 // Only members with this Discord role can use /generate.
 const GENERATE_ROLE_ID =
   "1550942928170520688";
@@ -79,6 +75,20 @@ function getOption(
     option =>
       option.name === name
   )?.value;
+}
+
+function isLifetime(user) {
+  return Number(user?.lifetime) === 1;
+}
+
+function displayTime(user) {
+  if (isLifetime(user)) {
+    return "Lifetime ♾️";
+  }
+
+  return formatTime(
+    Number(user?.time_remaining) || 0
+  );
 }
 
 // ============================================================
@@ -202,9 +212,11 @@ async function commandInfo(
   }
 
   const status =
-    Number(user.paused) === 1
-      ? "Paused ⏸️"
-      : "Active ▶️";
+    isLifetime(user)
+      ? "Lifetime ♾️"
+      : Number(user.paused) === 1
+        ? "Paused ⏸️"
+        : "Active ▶️";
 
   return reply(
     [
@@ -213,7 +225,7 @@ async function commandInfo(
       `**Roblox:** ${user.roblox_username}`,
       `**Display Name:** ${user.roblox_display_name || user.roblox_username}`,
       `**User ID:** ${user.roblox_user_id}`,
-      `**Time Remaining:** ${formatTime(user.time_remaining)}`,
+      `**Time Remaining:** ${displayTime(user)}`,
       `**Status:** ${status}`
     ].join("\n")
   );
@@ -241,6 +253,12 @@ async function commandPause(
   if (!user) {
     return reply(
       "❌ Link your Roblox account first with `/link`."
+    );
+  }
+
+  if (isLifetime(user)) {
+    return reply(
+      "♾️ Your Eternal TP access is Lifetime and is always active."
     );
   }
 
@@ -285,6 +303,12 @@ async function commandUnpause(
   if (!user) {
     return reply(
       "❌ Link your Roblox account first with `/link`."
+    );
+  }
+
+  if (isLifetime(user)) {
+    return reply(
+      "♾️ Your Eternal TP access is Lifetime and is already active."
     );
   }
 
@@ -369,11 +393,27 @@ async function commandRedeem(
           "❌ That code isn't assigned to your account."
         );
 
+      case "ALREADY_LIFETIME":
+        return reply(
+          "♾️ Your account already has Lifetime access."
+        );
+
       default:
         return reply(
           "❌ The code couldn't be redeemed."
         );
     }
+  }
+
+  if (result.lifetime) {
+    return reply(
+      [
+        "♾️ **Lifetime Redeemed!**",
+        "",
+        `Key: **${result.code}**`,
+        "Your Eternal TP access is now **Lifetime**."
+      ].join("\n")
+    );
   }
 
   return reply(
@@ -389,7 +429,6 @@ async function commandGenerate(
   interaction,
   env
 ) {
-  // Role check.
   if (!canGenerate(interaction)) {
     return reply(
       "❌ You don't have permission to use `/generate`."
@@ -406,22 +445,34 @@ async function commandGenerate(
       .trim()
       .toLowerCase();
 
-  const seconds =
-    parseWager(duration);
+  const lifetime =
+    duration === "lifetime" ||
+    duration === "life" ||
+    duration === "lt";
 
-  if (
-    !seconds ||
-    seconds < 60
-  ) {
-    return reply(
-      "❌ Invalid duration. Examples: `1m`, `30m`, `1h`, `1d`, `1w`."
-    );
+  let seconds = 0;
+
+  if (!lifetime) {
+    seconds =
+      parseWager(duration);
+
+    if (
+      !seconds ||
+      seconds < 60
+    ) {
+      return reply(
+        "❌ Invalid duration. Examples: `1m`, `30m`, `1h`, `1d`, `1w`, `lifetime`."
+      );
+    }
   }
 
   const result =
     await generateRedeemCode(
       env,
-      seconds
+      seconds,
+      {
+        lifetime
+      }
     );
 
   if (!result.ok) {
@@ -435,7 +486,11 @@ async function commandGenerate(
       "### 🔑 Eternal TP Key Generated",
       "",
       `**Key:** \`${result.code}\``,
-      `**Duration:** ${formatTime(result.seconds)}`,
+      `**Duration:** ${
+        result.lifetime
+          ? "Lifetime ♾️"
+          : formatTime(result.seconds)
+      }`,
       "",
       "This key can be redeemed once with `/redeem`."
     ].join("\n")
@@ -486,6 +541,12 @@ async function commandCoinflip(
   if (!user) {
     return reply(
       "❌ Link your Roblox account first with `/link`."
+    );
+  }
+
+  if (isLifetime(user)) {
+    return reply(
+      "♾️ Lifetime accounts can't gamble Lifetime access."
     );
   }
 
@@ -603,6 +664,12 @@ async function commandSpin(
     );
   }
 
+  if (isLifetime(user)) {
+    return reply(
+      "♾️ Lifetime accounts can't gamble Lifetime access."
+    );
+  }
+
   const wager =
     parseWager(
       getOption(
@@ -635,7 +702,6 @@ async function commandSpin(
       spin.multiplier
     );
 
-  // Never subtract more than the wager.
   const safeChange =
     Math.max(
       -wager,
