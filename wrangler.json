@@ -1,17 +1,23 @@
-{
-  "name": "eternal-tp",
-  "main": "src/index.js",
-  "compatibility_date": "2026-09-20",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ],
-
-  "d1_databases": [
+"durable_objects": {
+  "bindings": [
     {
-      "binding": "DB",
-      "database_name": "eternal-tp-db",
-      "database_id": "5ecaaa37-49b1-4b5e-9b73-f88f0f21f97f",
-      "migrations_dir": "migrations"
+      "name": "GATEWAY",
+      "class_name": "EternalTPGateway"
     }
+  ]
+},
+
+"migrations": [
+  {
+    "tag": "v1",
+    "new_sqlite_classes": [
+      "EternalTPGateway"
+    ]
+  }
+],
+
+"triggers": {
+  "crons": [
+    "*/5 * * * *"
   ]
 }
