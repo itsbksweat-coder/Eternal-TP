@@ -23,11 +23,22 @@ import {
 const CHANNEL_MESSAGE = 4;
 const EPHEMERAL = 64;
 
-// Only these Discord accounts can use /generate.
-const GENERATE_ADMINS =
-  new Set([
-    "1167590082878902435"
-  ]);
+// ============================================================
+// /generate ROLE PERMISSION
+// ============================================================
+
+// Only members with this Discord role can use /generate.
+const GENERATE_ROLE_ID =
+  "1550942928170520688";
+
+function canGenerate(interaction) {
+  const roles =
+    interaction?.member?.roles || [];
+
+  return roles.includes(
+    GENERATE_ROLE_ID
+  );
+}
 
 function reply(
   content,
@@ -378,19 +389,10 @@ async function commandGenerate(
   interaction,
   env
 ) {
-  const discordId =
-    getDiscordUserId(
-      interaction
-    );
-
-  if (
-    !discordId ||
-    !GENERATE_ADMINS.has(
-      String(discordId)
-    )
-  ) {
+  // Role check.
+  if (!canGenerate(interaction)) {
     return reply(
-      "❌ You don't have permission to generate Eternal TP keys."
+      "❌ You don't have permission to use `/generate`."
     );
   }
 
@@ -633,6 +635,7 @@ async function commandSpin(
       spin.multiplier
     );
 
+  // Never subtract more than the wager.
   const safeChange =
     Math.max(
       -wager,
