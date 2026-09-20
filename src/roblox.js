@@ -1,185 +1,40 @@
 // ============================================================
-// Eternal TP - Roblox Helpers
+// Eternal TP - Roblox API
 // ============================================================
 
 import {
   getUserByRobloxId,
   startGameSession,
   heartbeatSession,
-  endGameSession
+  endGameSession,
+  updateRobloxProfile
 } from "./database.js";
 
-const ROBLOX_USERS_API = "https://users.roblox.com";
+const ROBLOX_USERS_API =
+  "https://users.roblox.com";
 
 // ============================================================
-// JSON RESPONSE
+// RESPONSE
 // ============================================================
 
 function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=UTF-8",
-      "cache-control": "no-store"
-    }
-  });
-}
+  return new Response(
+    JSON.stringify(data),
+    {
+      status,
+      headers: {
+        "content-type":
+          "application/json; charset=UTF-8",
 
-// ============================================================
-// USERNAME -> ROBLOX USER
-// ============================================================
-
-export async function resolveRobloxUsername(username) {
-  username = String(username || "").trim();
-
-  if (!username) {
-    return {
-      ok: false,
-      error: "INVALID_USERNAME"
-    };
-  }
-
-  try {
-    const response = await fetch(
-      `${ROBLOX_USERS_API}/v1/usernames/users`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          usernames: [username],
-          excludeBannedUsers: false
-        })
+        "cache-control":
+          "no-store"
       }
-    );
-
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: "ROBLOX_API_ERROR"
-      };
     }
-
-    const body = await response.json();
-
-    const user = body?.data?.[0];
-
-    if (!user) {
-      return {
-        ok: false,
-        error: "USER_NOT_FOUND"
-      };
-    }
-
-    return {
-      ok: true,
-      id: Number(user.id),
-      username: user.name,
-      displayName: user.displayName
-    };
-  } catch (error) {
-    console.error("Roblox username lookup failed:", error);
-
-    return {
-      ok: false,
-      error: "ROBLOX_API_ERROR"
-    };
-  }
+  );
 }
 
 // ============================================================
-// USER ID -> ROBLOX USER
-// ============================================================
-
-export async function resolveRobloxUserId(userId) {
-  userId = Number(userId);
-
-  if (!Number.isInteger(userId) || userId <= 0) {
-    return {
-      ok: false,
-      error: "INVALID_USER_ID"
-    };
-  }
-
-  try {
-    const response = await fetch(
-      `${ROBLOX_USERS_API}/v1/users/${userId}`,
-      {
-        headers: {
-          accept: "application/json"
-        }
-      }
-    );
-
-    if (response.status === 404) {
-      return {
-        ok: false,
-        error: "USER_NOT_FOUND"
-      };
-    }
-
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: "ROBLOX_API_ERROR"
-      };
-    }
-
-    const user = await response.json();
-
-    return {
-      ok: true,
-      id: Number(user.id),
-      username: user.name,
-      displayName: user.displayName
-    };
-  } catch (error) {
-    console.error("Roblox user lookup failed:", error);
-
-    return {
-      ok: false,
-      error: "ROBLOX_API_ERROR"
-    };
-  }
-}
-
-// ============================================================
-// GAME API AUTHENTICATION
-//
-// Roblox requests will send:
-//
-// Authorization: Bearer <GAME_API_SECRET>
-//
-// GAME_API_SECRET will be stored as a Cloudflare secret,
-// NOT inside GitHub.
-// ============================================================
-
-function authorizedGameRequest(request, env) {
-  if (!env.GAME_API_SECRET) {
-    console.error("GAME_API_SECRET is not configured.");
-    return false;
-  }
-
-  const authorization = request.headers.get("authorization");
-
-  if (!authorization) {
-    return false;
-  }
-
-  const prefix = "Bearer ";
-
-  if (!authorization.startsWith(prefix)) {
-    return false;
-  }
-
-  const supplied = authorization.slice(prefix.length).trim();
-
-  return supplied === env.GAME_API_SECRET;
-}
-
-// ============================================================
-// READ JSON BODY
+// READ JSON
 // ============================================================
 
 async function readBody(request) {
@@ -191,7 +46,228 @@ async function readBody(request) {
 }
 
 // ============================================================
-// GET USER STATUS
+// ROBLOX USERNAME -> USER
+// ============================================================
+
+export async function resolveRobloxUsername(
+  username
+) {
+  username =
+    String(username || "")
+      .trim();
+
+  if (!username) {
+    return {
+      ok: false,
+      error: "INVALID_USERNAME"
+    };
+  }
+
+  try {
+    const response =
+      await fetch(
+        `${ROBLOX_USERS_API}/v1/usernames/users`,
+        {
+          method: "POST",
+
+          headers: {
+            "content-type":
+              "application/json",
+
+            accept:
+              "application/json"
+          },
+
+          body:
+            JSON.stringify({
+              usernames: [
+                username
+              ],
+
+              excludeBannedUsers:
+                false
+            })
+        }
+      );
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error:
+          "ROBLOX_API_ERROR"
+      };
+    }
+
+    const data =
+      await response.json();
+
+    const user =
+      data?.data?.[0];
+
+    if (!user) {
+      return {
+        ok: false,
+        error:
+          "USER_NOT_FOUND"
+      };
+    }
+
+    return {
+      ok: true,
+
+      id:
+        Number(user.id),
+
+      username:
+        user.name,
+
+      displayName:
+        user.displayName
+    };
+  } catch (error) {
+    console.error(
+      "Roblox username lookup error:",
+      error
+    );
+
+    return {
+      ok: false,
+      error:
+        "ROBLOX_API_ERROR"
+    };
+  }
+}
+
+// ============================================================
+// ROBLOX USER ID -> USER
+// ============================================================
+
+export async function resolveRobloxUserId(
+  userId
+) {
+  userId =
+    Number(userId);
+
+  if (
+    !Number.isInteger(userId) ||
+    userId <= 0
+  ) {
+    return {
+      ok: false,
+      error:
+        "INVALID_USER_ID"
+    };
+  }
+
+  try {
+    const response =
+      await fetch(
+        `${ROBLOX_USERS_API}/v1/users/${userId}`,
+        {
+          headers: {
+            accept:
+              "application/json"
+          }
+        }
+      );
+
+    if (
+      response.status === 404
+    ) {
+      return {
+        ok: false,
+        error:
+          "USER_NOT_FOUND"
+      };
+    }
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error:
+          "ROBLOX_API_ERROR"
+      };
+    }
+
+    const user =
+      await response.json();
+
+    return {
+      ok: true,
+
+      id:
+        Number(user.id),
+
+      username:
+        user.name,
+
+      displayName:
+        user.displayName
+    };
+  } catch (error) {
+    console.error(
+      "Roblox user lookup error:",
+      error
+    );
+
+    return {
+      ok: false,
+      error:
+        "ROBLOX_API_ERROR"
+    };
+  }
+}
+
+// ============================================================
+// GAME API AUTH
+//
+// Header:
+//
+// Authorization: Bearer YOUR_GAME_API_SECRET
+// ============================================================
+
+function authorizedGameRequest(
+  request,
+  env
+) {
+  if (!env.GAME_API_SECRET) {
+    console.error(
+      "GAME_API_SECRET is not configured."
+    );
+
+    return false;
+  }
+
+  const authorization =
+    request.headers.get(
+      "authorization"
+    );
+
+  if (!authorization) {
+    return false;
+  }
+
+  if (
+    !authorization.startsWith(
+      "Bearer "
+    )
+  ) {
+    return false;
+  }
+
+  const supplied =
+    authorization
+      .slice(7)
+      .trim();
+
+  return (
+    supplied ===
+    env.GAME_API_SECRET
+  );
+}
+
+// ============================================================
+// STATUS
 //
 // POST /api/roblox/status
 //
@@ -200,33 +276,56 @@ async function readBody(request) {
 // }
 // ============================================================
 
-async function statusRoute(request, env) {
-  const body = await readBody(request);
+async function statusRoute(
+  request,
+  env
+) {
+  const body =
+    await readBody(request);
 
   if (!body) {
-    return json({
-      ok: false,
-      error: "INVALID_JSON"
-    }, 400);
+    return json(
+      {
+        ok: false,
+        error: "INVALID_JSON"
+      },
+      400
+    );
   }
 
-  const userId = Number(body.userId);
+  const userId =
+    Number(body.userId);
 
-  if (!Number.isInteger(userId) || userId <= 0) {
-    return json({
-      ok: false,
-      error: "INVALID_USER_ID"
-    }, 400);
+  if (
+    !Number.isInteger(userId) ||
+    userId <= 0
+  ) {
+    return json(
+      {
+        ok: false,
+        error:
+          "INVALID_USER_ID"
+      },
+      400
+    );
   }
 
-  const user = await getUserByRobloxId(env, userId);
+  const user =
+    await getUserByRobloxId(
+      env,
+      userId
+    );
 
   if (!user) {
-    return json({
-      ok: false,
-      linked: false,
-      error: "USER_NOT_LINKED"
-    }, 404);
+    return json(
+      {
+        ok: false,
+        linked: false,
+        error:
+          "USER_NOT_LINKED"
+      },
+      404
+    );
   }
 
   return json({
@@ -234,13 +333,130 @@ async function statusRoute(request, env) {
     linked: true,
 
     user: {
-      robloxUserId: Number(user.roblox_user_id),
-      username: user.roblox_username,
-      displayName:
-        user.roblox_display_name || user.roblox_username,
+      robloxUserId:
+        Number(
+          user.roblox_user_id
+        ),
 
-      timeRemaining: Number(user.time_remaining) || 0,
-      paused: Boolean(user.paused)
+      username:
+        user.roblox_username,
+
+      displayName:
+        user.roblox_display_name ||
+        user.roblox_username,
+
+      timeRemaining:
+        Math.max(
+          0,
+          Number(
+            user.time_remaining
+          ) || 0
+        ),
+
+      paused:
+        Number(
+          user.paused
+        ) === 1
+    }
+  });
+}
+
+// ============================================================
+// REFRESH PROFILE
+//
+// POST /api/roblox/profile/refresh
+//
+// {
+//   "userId": 123456
+// }
+// ============================================================
+
+async function refreshProfileRoute(
+  request,
+  env
+) {
+  const body =
+    await readBody(request);
+
+  if (!body) {
+    return json(
+      {
+        ok: false,
+        error: "INVALID_JSON"
+      },
+      400
+    );
+  }
+
+  const userId =
+    Number(body.userId);
+
+  if (
+    !Number.isInteger(userId) ||
+    userId <= 0
+  ) {
+    return json(
+      {
+        ok: false,
+        error:
+          "INVALID_USER_ID"
+      },
+      400
+    );
+  }
+
+  const linked =
+    await getUserByRobloxId(
+      env,
+      userId
+    );
+
+  if (!linked) {
+    return json(
+      {
+        ok: false,
+        error:
+          "USER_NOT_LINKED"
+      },
+      404
+    );
+  }
+
+  const profile =
+    await resolveRobloxUserId(
+      userId
+    );
+
+  if (!profile.ok) {
+    return json(
+      {
+        ok: false,
+        error:
+          profile.error
+      },
+      502
+    );
+  }
+
+  await updateRobloxProfile(
+    env,
+    userId,
+    profile.username,
+    profile.displayName
+  );
+
+  return json({
+    ok: true,
+
+    user: {
+      robloxUserId:
+        profile.id,
+
+      username:
+        profile.username,
+
+      displayName:
+        profile.displayName
     }
   });
 }
@@ -253,75 +469,129 @@ async function statusRoute(request, env) {
 // {
 //   "userId": 123456,
 //   "placeId": 123,
-//   "jobId": "..."
+//   "jobId": "abc"
 // }
 // ============================================================
 
-async function startSessionRoute(request, env) {
-  const body = await readBody(request);
+async function startSessionRoute(
+  request,
+  env
+) {
+  const body =
+    await readBody(request);
 
   if (!body) {
-    return json({
-      ok: false,
-      error: "INVALID_JSON"
-    }, 400);
+    return json(
+      {
+        ok: false,
+        error: "INVALID_JSON"
+      },
+      400
+    );
   }
 
-  const userId = Number(body.userId);
+  const userId =
+    Number(body.userId);
 
-  if (!Number.isInteger(userId) || userId <= 0) {
-    return json({
-      ok: false,
-      error: "INVALID_USER_ID"
-    }, 400);
+  if (
+    !Number.isInteger(userId) ||
+    userId <= 0
+  ) {
+    return json(
+      {
+        ok: false,
+        error:
+          "INVALID_USER_ID"
+      },
+      400
+    );
   }
 
-  const user = await getUserByRobloxId(env, userId);
+  const user =
+    await getUserByRobloxId(
+      env,
+      userId
+    );
 
   if (!user) {
-    return json({
-      ok: false,
-      error: "USER_NOT_LINKED"
-    }, 404);
+    return json(
+      {
+        ok: false,
+        error:
+          "USER_NOT_LINKED"
+      },
+      404
+    );
   }
 
-  if (Number(user.time_remaining) <= 0) {
-    return json({
-      ok: false,
-      error: "NO_TIME_REMAINING",
-      timeRemaining: 0
-    }, 403);
+  const remaining =
+    Math.max(
+      0,
+      Number(
+        user.time_remaining
+      ) || 0
+    );
+
+  if (remaining <= 0) {
+    return json(
+      {
+        ok: false,
+        error:
+          "NO_TIME_REMAINING",
+
+        timeRemaining: 0
+      },
+      403
+    );
   }
 
-  if (Boolean(user.paused)) {
-    return json({
-      ok: false,
-      error: "ACCOUNT_PAUSED",
-      timeRemaining: Number(user.time_remaining)
-    }, 403);
+  if (
+    Number(user.paused) === 1
+  ) {
+    return json(
+      {
+        ok: false,
+        error:
+          "ACCOUNT_PAUSED",
+
+        timeRemaining:
+          remaining
+      },
+      403
+    );
   }
 
-  const result = await startGameSession(
-    env,
-    userId,
-    body.placeId ?? null,
-    body.jobId ?? null
-  );
+  const result =
+    await startGameSession(
+      env,
+      userId,
+      body.placeId ?? null,
+      body.jobId ?? null
+    );
 
   if (!result.ok) {
-    return json(result, 400);
+    return json(
+      result,
+      400
+    );
   }
 
   return json({
     ok: true,
-    sessionId: result.sessionId,
-    timeRemaining: Number(user.time_remaining),
-    paused: false
+
+    sessionId:
+      result.sessionId,
+
+    timeRemaining:
+      remaining,
+
+    paused:
+      false
   });
 }
 
 // ============================================================
-// SESSION HEARTBEAT
+// HEARTBEAT
 //
 // POST /api/roblox/session/heartbeat
 //
@@ -331,71 +601,156 @@ async function startSessionRoute(request, env) {
 // }
 // ============================================================
 
-async function heartbeatRoute(request, env) {
-  const body = await readBody(request);
+async function heartbeatRoute(
+  request,
+  env
+) {
+  const body =
+    await readBody(request);
 
   if (!body) {
-    return json({
-      ok: false,
-      error: "INVALID_JSON"
-    }, 400);
+    return json(
+      {
+        ok: false,
+        error: "INVALID_JSON"
+      },
+      400
+    );
   }
 
-  const sessionId = Number(body.sessionId);
-  const userId = Number(body.userId);
+  const sessionId =
+    Number(
+      body.sessionId
+    );
 
-  if (!Number.isInteger(sessionId) || sessionId <= 0) {
-    return json({
-      ok: false,
-      error: "INVALID_SESSION_ID"
-    }, 400);
+  const userId =
+    Number(
+      body.userId
+    );
+
+  if (
+    !Number.isInteger(sessionId) ||
+    sessionId <= 0
+  ) {
+    return json(
+      {
+        ok: false,
+        error:
+          "INVALID_SESSION_ID"
+      },
+      400
+    );
   }
 
-  if (!Number.isInteger(userId) || userId <= 0) {
-    return json({
-      ok: false,
-      error: "INVALID_USER_ID"
-    }, 400);
+  if (
+    !Number.isInteger(userId) ||
+    userId <= 0
+  ) {
+    return json(
+      {
+        ok: false,
+        error:
+          "INVALID_USER_ID"
+      },
+      400
+    );
   }
 
-  const user = await getUserByRobloxId(env, userId);
+  // getUserByRobloxId settles the
+  // authoritative timer before returning.
+  const user =
+    await getUserByRobloxId(
+      env,
+      userId
+    );
 
   if (!user) {
-    return json({
-      ok: false,
-      error: "USER_NOT_LINKED"
-    }, 404);
+    return json(
+      {
+        ok: false,
+        error:
+          "USER_NOT_LINKED"
+      },
+      404
+    );
   }
 
-  if (Boolean(user.paused)) {
-    return json({
-      ok: false,
-      error: "ACCOUNT_PAUSED",
-      timeRemaining: Number(user.time_remaining)
-    }, 403);
+  const remaining =
+    Math.max(
+      0,
+      Number(
+        user.time_remaining
+      ) || 0
+    );
+
+  if (
+    remaining <= 0
+  ) {
+    await endGameSession(
+      env,
+      sessionId
+    );
+
+    return json(
+      {
+        ok: false,
+        error:
+          "NO_TIME_REMAINING",
+
+        timeRemaining: 0
+      },
+      403
+    );
   }
 
-  if (Number(user.time_remaining) <= 0) {
-    return json({
-      ok: false,
-      error: "NO_TIME_REMAINING",
-      timeRemaining: 0
-    }, 403);
+  if (
+    Number(user.paused) === 1
+  ) {
+    await endGameSession(
+      env,
+      sessionId
+    );
+
+    return json(
+      {
+        ok: false,
+        error:
+          "ACCOUNT_PAUSED",
+
+        timeRemaining:
+          remaining
+      },
+      403
+    );
   }
 
-  const updated = await heartbeatSession(env, sessionId);
+  const updated =
+    await heartbeatSession(
+      env,
+      sessionId
+    );
 
   if (!updated) {
-    return json({
-      ok: false,
-      error: "SESSION_NOT_FOUND"
-    }, 404);
+    return json(
+      {
+        ok: false,
+        error:
+          "SESSION_NOT_FOUND"
+      },
+      404
+    );
   }
 
   return json({
     ok: true,
-    timeRemaining: Number(user.time_remaining),
-    paused: false
+
+    sessionId,
+
+    timeRemaining:
+      remaining,
+
+    paused:
+      false
   });
 }
 
@@ -409,26 +764,46 @@ async function heartbeatRoute(request, env) {
 // }
 // ============================================================
 
-async function endSessionRoute(request, env) {
-  const body = await readBody(request);
+async function endSessionRoute(
+  request,
+  env
+) {
+  const body =
+    await readBody(request);
 
   if (!body) {
-    return json({
-      ok: false,
-      error: "INVALID_JSON"
-    }, 400);
+    return json(
+      {
+        ok: false,
+        error: "INVALID_JSON"
+      },
+      400
+    );
   }
 
-  const sessionId = Number(body.sessionId);
+  const sessionId =
+    Number(
+      body.sessionId
+    );
 
-  if (!Number.isInteger(sessionId) || sessionId <= 0) {
-    return json({
-      ok: false,
-      error: "INVALID_SESSION_ID"
-    }, 400);
+  if (
+    !Number.isInteger(sessionId) ||
+    sessionId <= 0
+  ) {
+    return json(
+      {
+        ok: false,
+        error:
+          "INVALID_SESSION_ID"
+      },
+      400
+    );
   }
 
-  await endGameSession(env, sessionId);
+  await endGameSession(
+    env,
+    sessionId
+  );
 
   return json({
     ok: true
@@ -436,41 +811,84 @@ async function endSessionRoute(request, env) {
 }
 
 // ============================================================
-// ROUTER
+// ROBLOX ROUTER
 // ============================================================
 
-export async function handleRobloxRequest(request, env, pathname) {
-  if (!authorizedGameRequest(request, env)) {
-    return json({
-      ok: false,
-      error: "UNAUTHORIZED"
-    }, 401);
+export async function handleRobloxRequest(
+  request,
+  env,
+  pathname
+) {
+  // Every /api/roblox/* route requires
+  // the server API secret.
+  if (
+    !authorizedGameRequest(
+      request,
+      env
+    )
+  ) {
+    return json(
+      {
+        ok: false,
+        error:
+          "UNAUTHORIZED"
+      },
+      401
+    );
   }
 
-  if (request.method !== "POST") {
-    return json({
-      ok: false,
-      error: "METHOD_NOT_ALLOWED"
-    }, 405);
+  if (
+    request.method !== "POST"
+  ) {
+    return json(
+      {
+        ok: false,
+        error:
+          "METHOD_NOT_ALLOWED"
+      },
+      405
+    );
   }
 
   switch (pathname) {
     case "/api/roblox/status":
-      return statusRoute(request, env);
+      return statusRoute(
+        request,
+        env
+      );
+
+    case "/api/roblox/profile/refresh":
+      return refreshProfileRoute(
+        request,
+        env
+      );
 
     case "/api/roblox/session/start":
-      return startSessionRoute(request, env);
+      return startSessionRoute(
+        request,
+        env
+      );
 
     case "/api/roblox/session/heartbeat":
-      return heartbeatRoute(request, env);
+      return heartbeatRoute(
+        request,
+        env
+      );
 
     case "/api/roblox/session/end":
-      return endSessionRoute(request, env);
+      return endSessionRoute(
+        request,
+        env
+      );
 
     default:
-      return json({
-        ok: false,
-        error: "NOT_FOUND"
-      }, 404);
+      return json(
+        {
+          ok: false,
+          error:
+            "NOT_FOUND"
+        },
+        404
+      );
   }
 }
