@@ -5,5 +5,13 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "vars": {}
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "eternal-tp-db",
+      "database_id": "PASTE_YOUR_DATABASE_ID_HERE",
+      "migrations_dir": "migrations"
+    }
+  ]
 }
