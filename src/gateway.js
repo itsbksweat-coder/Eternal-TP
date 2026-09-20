@@ -1,5 +1,5 @@
 const DISCORD_GATEWAY_URL =
-  "wss://gateway.discord.gg/?v=10&encoding=json";
+  "https://gateway.discord.gg/?v=10&encoding=json";
 
 const GATEWAY_INTENTS = 0;
 
@@ -40,7 +40,7 @@ export class EternalTPGateway {
   }
 
   // ==========================================================
-  // DURABLE OBJECT FETCH
+  // DURABLE OBJECT HTTP
   // ==========================================================
 
   async fetch(request) {
@@ -61,6 +61,10 @@ export class EternalTPGateway {
             this.socket?.readyState ===
             WebSocket.OPEN,
 
+          readyState:
+            this.socket?.readyState ??
+            null,
+
           connecting:
             this.connecting,
 
@@ -70,7 +74,10 @@ export class EternalTPGateway {
             ),
 
           lastError:
-            this.lastError
+            this.lastError,
+
+          lastEvent:
+            this.lastEvent
         });
       } catch (error) {
         this.recordError(error);
@@ -172,7 +179,13 @@ export class EternalTPGateway {
             WebSocket.OPEN,
 
           connecting:
-            this.connecting
+            this.connecting,
+
+          lastError:
+            this.lastError,
+
+          lastEvent:
+            this.lastEvent
         });
       } catch (error) {
         this.recordError(error);
@@ -199,7 +212,7 @@ export class EternalTPGateway {
   }
 
   // ==========================================================
-  // DIAGNOSTIC HELPERS
+  // ERROR HELPER
   // ==========================================================
 
   recordError(error) {
@@ -218,7 +231,7 @@ export class EternalTPGateway {
   }
 
   // ==========================================================
-  // ENSURE CONNECTION
+  // ENSURE CONNECTED
   // ==========================================================
 
   async ensureConnected() {
@@ -242,17 +255,50 @@ export class EternalTPGateway {
   }
 
   // ==========================================================
+  // BUILD GATEWAY URL
+  // ==========================================================
+
+  getGatewayUrl() {
+    // Fresh Discord connection
+    if (!this.resumeGatewayUrl) {
+      return DISCORD_GATEWAY_URL;
+    }
+
+    // Discord normally provides resume_gateway_url as wss://.
+    // Cloudflare's fetch() WebSocket upgrade expects HTTPS.
+    const base =
+      String(
+        this.resumeGatewayUrl
+      )
+        .replace(
+          /^wss:/i,
+          "https:"
+        )
+        .replace(
+          /^ws:/i,
+          "http:"
+        )
+        .replace(
+          /\/+$/,
+          ""
+        );
+
+    return (
+      `${base}/?v=10&encoding=json`
+    );
+  }
+
+  // ==========================================================
   // CONNECT
   // ==========================================================
 
   async connect() {
     if (!this.env.DISCORD_TOKEN) {
-      const error =
+      this.recordError(
         new Error(
           "DISCORD_TOKEN is missing."
-        );
-
-      this.recordError(error);
+        )
+      );
 
       return;
     }
@@ -272,23 +318,20 @@ export class EternalTPGateway {
     this.clearReconnect();
 
     try {
-      let gatewayUrl =
-        DISCORD_GATEWAY_URL;
-
-      if (
-        this.resumeGatewayUrl
-      ) {
-        const base =
-          this.resumeGatewayUrl
-            .replace(/\/+$/, "");
-
-        gatewayUrl =
-          `${base}/?v=10&encoding=json`;
-      }
+      const gatewayUrl =
+        this.getGatewayUrl();
 
       console.log(
-        "Connecting to Discord Gateway..."
+        "Connecting to Discord Gateway:",
+        gatewayUrl
       );
+
+      // ======================================================
+      // CLOUDFLARE OUTBOUND WEBSOCKET
+      //
+      // Important:
+      // fetch() receives HTTPS here, not WSS.
+      // ======================================================
 
       const response =
         await fetch(
@@ -302,7 +345,7 @@ export class EternalTPGateway {
         );
 
       console.log(
-        "Discord Gateway HTTP status:",
+        "Discord Gateway upgrade status:",
         response.status
       );
 
@@ -319,7 +362,7 @@ export class EternalTPGateway {
 
       if (!socket) {
         throw new Error(
-          "Discord Gateway did not return a WebSocket."
+          "Discord Gateway upgrade succeeded but no WebSocket was returned."
         );
       }
 
@@ -390,7 +433,7 @@ export class EternalTPGateway {
           this.clearHeartbeat();
 
           // --------------------------------------------------
-          // Authentication failed.
+          // Authentication failed
           // --------------------------------------------------
 
           if (
@@ -407,7 +450,7 @@ export class EternalTPGateway {
           }
 
           // --------------------------------------------------
-          // Invalid sequence.
+          // Invalid sequence
           // --------------------------------------------------
 
           if (
@@ -424,7 +467,7 @@ export class EternalTPGateway {
           }
 
           // --------------------------------------------------
-          // Session timed out.
+          // Session timed out
           // --------------------------------------------------
 
           if (
@@ -441,7 +484,7 @@ export class EternalTPGateway {
           }
 
           // --------------------------------------------------
-          // Invalid intents.
+          // Invalid intents
           // --------------------------------------------------
 
           if (
@@ -454,7 +497,7 @@ export class EternalTPGateway {
           }
 
           // --------------------------------------------------
-          // Disallowed intents.
+          // Disallowed intents
           // --------------------------------------------------
 
           if (
@@ -502,19 +545,25 @@ export class EternalTPGateway {
   }
 
   // ==========================================================
-  // MESSAGE HANDLER
+  // HANDLE DISCORD PAYLOAD
   // ==========================================================
 
   async handleMessage(raw) {
     let payload;
 
     try {
-      payload =
-        JSON.parse(
-          typeof raw === "string"
-            ? raw
-            : String(raw)
-        );
+      if (
+        typeof raw === "string"
+      ) {
+        payload =
+          JSON.parse(raw);
+      } else {
+        payload =
+          JSON.parse(
+            new TextDecoder()
+              .decode(raw)
+          );
+      }
     } catch (error) {
       throw new Error(
         `Unable to parse Discord Gateway payload: ${error}`
@@ -613,7 +662,7 @@ export class EternalTPGateway {
     }
 
     // ========================================================
-    // HEARTBEAT REQUEST
+    // DISCORD REQUESTED HEARTBEAT
     // ========================================================
 
     if (op === 1) {
@@ -708,7 +757,7 @@ export class EternalTPGateway {
         this.sequence !== null
       ) {
         console.log(
-          "Attempting to resume Discord session."
+          "Attempting Discord session resume."
         );
 
         this.sendResume();
@@ -783,7 +832,7 @@ export class EternalTPGateway {
                 name:
                   "Eternal TP",
 
-                // WATCHING
+                // 3 = Watching
                 type: 3
               }
             ],
@@ -800,6 +849,10 @@ export class EternalTPGateway {
     if (sent) {
       this.lastEvent =
         "identify_sent";
+
+      console.log(
+        "Discord IDENTIFY sent."
+      );
     }
   }
 
@@ -827,6 +880,10 @@ export class EternalTPGateway {
     if (sent) {
       this.lastEvent =
         "resume_sent";
+
+      console.log(
+        "Discord RESUME sent."
+      );
     }
   }
 
@@ -848,7 +905,7 @@ export class EternalTPGateway {
               name:
                 "Eternal TP",
 
-              // WATCHING
+              // 3 = Watching
               type: 3
             }
           ],
@@ -863,7 +920,7 @@ export class EternalTPGateway {
 
     if (sent) {
       console.log(
-        "Discord presence set to online."
+        "Eternal TP presence set to online."
       );
     }
   }
@@ -880,7 +937,7 @@ export class EternalTPGateway {
     this.lastHeartbeatAck =
       true;
 
-    // Discord recommends jitter before the first heartbeat.
+    // Discord recommends jitter for the first heartbeat.
     const firstDelay =
       Math.floor(
         Math.random() *
@@ -916,8 +973,6 @@ export class EternalTPGateway {
       return;
     }
 
-    // If Discord never ACKed the previous heartbeat,
-    // reconnect instead of keeping a dead connection.
     if (
       this.lastHeartbeatAck ===
       false
@@ -945,6 +1000,7 @@ export class EternalTPGateway {
     const sent =
       this.send({
         op: 1,
+
         d:
           this.sequence
       });
@@ -988,7 +1044,7 @@ export class EternalTPGateway {
   }
 
   // ==========================================================
-  // SEND
+  // SEND PAYLOAD
   // ==========================================================
 
   send(payload) {
