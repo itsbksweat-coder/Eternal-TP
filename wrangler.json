@@ -10,7 +10,7 @@
     {
       "binding": "DB",
       "database_name": "eternal-tp-db",
-      "database_id": "PASTE_YOUR_DATABASE_ID_HERE",
+      "database_id": "5ecaaa37-49b1-4b5e-9b73-f88f0f21f97f",
       "migrations_dir": "migrations"
     }
   ]
