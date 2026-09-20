@@ -15,6 +15,7 @@ export class EternalTPGateway {
 
     this.heartbeatTimer = null;
     this.heartbeatTimeout = null;
+    this.firstHeartbeatTimer = null;
     this.reconnectTimer = null;
 
     this.sequence = null;
@@ -23,6 +24,19 @@ export class EternalTPGateway {
 
     this.lastHeartbeatAck = true;
     this.connecting = false;
+
+    // ========================================================
+    // DIAGNOSTICS
+    // ========================================================
+
+    this.lastError = null;
+    this.lastCloseCode = null;
+    this.lastCloseReason = null;
+    this.lastEvent = null;
+    this.lastGatewayOp = null;
+    this.lastGatewayEvent = null;
+    this.connectedAt = null;
+    this.readyAt = null;
   }
 
   // ==========================================================
@@ -32,22 +46,69 @@ export class EternalTPGateway {
   async fetch(request) {
     const url = new URL(request.url);
 
-    if (url.pathname === "/start") {
-      await this.ensureConnected();
+    // --------------------------------------------------------
+    // START
+    // --------------------------------------------------------
 
-      return Response.json({
-        ok: true,
-        connected:
-          this.socket?.readyState === WebSocket.OPEN
-      });
+    if (url.pathname === "/start") {
+      try {
+        await this.ensureConnected();
+
+        return Response.json({
+          ok: true,
+
+          connected:
+            this.socket?.readyState ===
+            WebSocket.OPEN,
+
+          connecting:
+            this.connecting,
+
+          hasDiscordToken:
+            Boolean(
+              this.env.DISCORD_TOKEN
+            ),
+
+          lastError:
+            this.lastError
+        });
+      } catch (error) {
+        this.recordError(error);
+
+        return Response.json(
+          {
+            ok: false,
+
+            error:
+              this.lastError,
+
+            hasDiscordToken:
+              Boolean(
+                this.env.DISCORD_TOKEN
+              )
+          },
+          {
+            status: 500
+          }
+        );
+      }
     }
+
+    // --------------------------------------------------------
+    // STATUS
+    // --------------------------------------------------------
 
     if (url.pathname === "/status") {
       return Response.json({
         ok: true,
 
         connected:
-          this.socket?.readyState === WebSocket.OPEN,
+          this.socket?.readyState ===
+          WebSocket.OPEN,
+
+        readyState:
+          this.socket?.readyState ??
+          null,
 
         connecting:
           this.connecting,
@@ -56,18 +117,77 @@ export class EternalTPGateway {
           this.sessionId,
 
         sequence:
-          this.sequence
+          this.sequence,
+
+        hasDiscordToken:
+          Boolean(
+            this.env.DISCORD_TOKEN
+          ),
+
+        lastError:
+          this.lastError,
+
+        lastCloseCode:
+          this.lastCloseCode,
+
+        lastCloseReason:
+          this.lastCloseReason,
+
+        lastEvent:
+          this.lastEvent,
+
+        lastGatewayOp:
+          this.lastGatewayOp,
+
+        lastGatewayEvent:
+          this.lastGatewayEvent,
+
+        connectedAt:
+          this.connectedAt,
+
+        readyAt:
+          this.readyAt
       });
     }
 
+    // --------------------------------------------------------
+    // RECONNECT
+    // --------------------------------------------------------
+
     if (url.pathname === "/reconnect") {
+      this.lastError = null;
+      this.lastCloseCode = null;
+      this.lastCloseReason = null;
+
       this.cleanupSocket();
 
-      await this.connect();
+      try {
+        await this.connect();
 
-      return Response.json({
-        ok: true
-      });
+        return Response.json({
+          ok: true,
+
+          connected:
+            this.socket?.readyState ===
+            WebSocket.OPEN,
+
+          connecting:
+            this.connecting
+        });
+      } catch (error) {
+        this.recordError(error);
+
+        return Response.json(
+          {
+            ok: false,
+            error:
+              this.lastError
+          },
+          {
+            status: 500
+          }
+        );
+      }
     }
 
     return new Response(
@@ -79,6 +199,25 @@ export class EternalTPGateway {
   }
 
   // ==========================================================
+  // DIAGNOSTIC HELPERS
+  // ==========================================================
+
+  recordError(error) {
+    this.lastError =
+      error instanceof Error
+        ? error.message
+        : String(error);
+
+    this.lastEvent =
+      "error";
+
+    console.error(
+      "Eternal TP Gateway error:",
+      error
+    );
+  }
+
+  // ==========================================================
   // ENSURE CONNECTION
   // ==========================================================
 
@@ -86,8 +225,10 @@ export class EternalTPGateway {
     if (
       this.socket &&
       (
-        this.socket.readyState === WebSocket.OPEN ||
-        this.socket.readyState === WebSocket.CONNECTING
+        this.socket.readyState ===
+          WebSocket.OPEN ||
+        this.socket.readyState ===
+          WebSocket.CONNECTING
       )
     ) {
       return;
@@ -106,9 +247,12 @@ export class EternalTPGateway {
 
   async connect() {
     if (!this.env.DISCORD_TOKEN) {
-      console.error(
-        "DISCORD_TOKEN is missing."
-      );
+      const error =
+        new Error(
+          "DISCORD_TOKEN is missing."
+        );
+
+      this.recordError(error);
 
       return;
     }
@@ -119,23 +263,56 @@ export class EternalTPGateway {
 
     this.connecting = true;
 
+    this.lastEvent =
+      "connecting";
+
+    this.lastError =
+      null;
+
     this.clearReconnect();
 
     try {
-      const gatewayUrl =
+      let gatewayUrl =
+        DISCORD_GATEWAY_URL;
+
+      if (
         this.resumeGatewayUrl
-          ? `${this.resumeGatewayUrl}?v=10&encoding=json`
-          : DISCORD_GATEWAY_URL;
+      ) {
+        const base =
+          this.resumeGatewayUrl
+            .replace(/\/+$/, "");
+
+        gatewayUrl =
+          `${base}/?v=10&encoding=json`;
+      }
+
+      console.log(
+        "Connecting to Discord Gateway..."
+      );
 
       const response =
         await fetch(
           gatewayUrl,
           {
             headers: {
-              Upgrade: "websocket"
+              Upgrade:
+                "websocket"
             }
           }
         );
+
+      console.log(
+        "Discord Gateway HTTP status:",
+        response.status
+      );
+
+      if (
+        response.status !== 101
+      ) {
+        throw new Error(
+          `Discord Gateway returned HTTP ${response.status}.`
+        );
+      }
 
       const socket =
         response.webSocket;
@@ -148,8 +325,25 @@ export class EternalTPGateway {
 
       socket.accept();
 
-      this.socket = socket;
-      this.connecting = false;
+      this.socket =
+        socket;
+
+      this.connecting =
+        false;
+
+      this.connectedAt =
+        Date.now();
+
+      this.lastEvent =
+        "websocket_connected";
+
+      console.log(
+        "Discord Gateway WebSocket connected."
+      );
+
+      // ======================================================
+      // MESSAGE
+      // ======================================================
 
       socket.addEventListener(
         "message",
@@ -157,34 +351,117 @@ export class EternalTPGateway {
           this.handleMessage(
             event.data
           ).catch(error => {
-            console.error(
-              "Gateway message error:",
+            this.recordError(
               error
             );
           });
         }
       );
 
+      // ======================================================
+      // CLOSE
+      // ======================================================
+
       socket.addEventListener(
         "close",
         event => {
+          this.lastCloseCode =
+            event.code;
+
+          this.lastCloseReason =
+            event.reason ||
+            null;
+
+          this.lastEvent =
+            "closed";
+
           console.log(
             "Discord Gateway closed:",
             event.code,
             event.reason
           );
 
-          this.socket = null;
+          this.socket =
+            null;
+
+          this.connecting =
+            false;
 
           this.clearHeartbeat();
 
-          // Invalid session / authentication problems
+          // --------------------------------------------------
+          // Authentication failed.
+          // --------------------------------------------------
+
           if (
             event.code === 4004
           ) {
+            this.lastError =
+              "Discord Gateway authentication failed (4004). Check DISCORD_TOKEN.";
+
             console.error(
-              "Discord Gateway authentication failed."
+              this.lastError
             );
+
+            return;
+          }
+
+          // --------------------------------------------------
+          // Invalid sequence.
+          // --------------------------------------------------
+
+          if (
+            event.code === 4007
+          ) {
+            this.sessionId =
+              null;
+
+            this.sequence =
+              null;
+
+            this.resumeGatewayUrl =
+              null;
+          }
+
+          // --------------------------------------------------
+          // Session timed out.
+          // --------------------------------------------------
+
+          if (
+            event.code === 4009
+          ) {
+            this.sessionId =
+              null;
+
+            this.sequence =
+              null;
+
+            this.resumeGatewayUrl =
+              null;
+          }
+
+          // --------------------------------------------------
+          // Invalid intents.
+          // --------------------------------------------------
+
+          if (
+            event.code === 4013
+          ) {
+            this.lastError =
+              "Discord rejected the Gateway intents (4013).";
+
+            return;
+          }
+
+          // --------------------------------------------------
+          // Disallowed intents.
+          // --------------------------------------------------
+
+          if (
+            event.code === 4014
+          ) {
+            this.lastError =
+              "Discord rejected privileged Gateway intents (4014).";
 
             return;
           }
@@ -193,9 +470,19 @@ export class EternalTPGateway {
         }
       );
 
+      // ======================================================
+      // ERROR
+      // ======================================================
+
       socket.addEventListener(
         "error",
         event => {
+          this.lastEvent =
+            "websocket_error";
+
+          this.lastError =
+            "Discord Gateway WebSocket error.";
+
           console.error(
             "Discord Gateway WebSocket error:",
             event
@@ -203,10 +490,10 @@ export class EternalTPGateway {
         }
       );
     } catch (error) {
-      this.connecting = false;
+      this.connecting =
+        false;
 
-      console.error(
-        "Discord Gateway connection error:",
+      this.recordError(
         error
       );
 
@@ -223,9 +510,15 @@ export class EternalTPGateway {
 
     try {
       payload =
-        JSON.parse(raw);
-    } catch {
-      return;
+        JSON.parse(
+          typeof raw === "string"
+            ? raw
+            : String(raw)
+        );
+    } catch (error) {
+      throw new Error(
+        `Unable to parse Discord Gateway payload: ${error}`
+      );
     }
 
     const {
@@ -235,92 +528,135 @@ export class EternalTPGateway {
       t
     } = payload;
 
+    this.lastGatewayOp =
+      op;
+
+    if (t) {
+      this.lastGatewayEvent =
+        t;
+    }
+
     if (
       s !== null &&
       s !== undefined
     ) {
-      this.sequence = s;
+      this.sequence =
+        s;
     }
 
-    // --------------------------------------------------------
-    // HELLO
-    // --------------------------------------------------------
+    // ========================================================
+    // DISPATCH
+    // ========================================================
 
-    if (op === 10) {
-      const interval =
-        Number(
-          d?.heartbeat_interval
-        );
+    if (op === 0) {
+      // ------------------------------------------------------
+      // READY
+      // ------------------------------------------------------
 
-      if (
-        !Number.isFinite(interval) ||
-        interval <= 0
-      ) {
-        throw new Error(
-          "Invalid heartbeat interval."
-        );
-      }
-
-      this.startHeartbeat(
-        interval
-      );
-
-      if (
-        this.sessionId &&
-        this.sequence !== null
-      ) {
-        this.sendResume();
-      } else {
-        this.sendIdentify();
-      }
-
-      return;
-    }
-
-    // --------------------------------------------------------
-    // HEARTBEAT ACK
-    // --------------------------------------------------------
-
-    if (op === 11) {
-      this.lastHeartbeatAck =
-        true;
-
-      if (
-        this.heartbeatTimeout
-      ) {
-        clearTimeout(
-          this.heartbeatTimeout
-        );
-
-        this.heartbeatTimeout =
+      if (t === "READY") {
+        this.sessionId =
+          d?.session_id ||
           null;
+
+        this.resumeGatewayUrl =
+          d?.resume_gateway_url ||
+          null;
+
+        this.readyAt =
+          Date.now();
+
+        this.lastEvent =
+          "ready";
+
+        this.lastError =
+          null;
+
+        console.log(
+          "Eternal TP Discord Gateway READY"
+        );
+
+        console.log(
+          "Logged in as:",
+          d?.user?.username ||
+          "unknown"
+        );
+
+        this.setOnlinePresence();
+
+        return;
+      }
+
+      // ------------------------------------------------------
+      // RESUMED
+      // ------------------------------------------------------
+
+      if (t === "RESUMED") {
+        this.readyAt =
+          Date.now();
+
+        this.lastEvent =
+          "resumed";
+
+        this.lastError =
+          null;
+
+        console.log(
+          "Discord Gateway session resumed."
+        );
+
+        this.setOnlinePresence();
+
+        return;
       }
 
       return;
     }
 
-    // --------------------------------------------------------
-    // DISCORD REQUESTS RECONNECT
-    // --------------------------------------------------------
+    // ========================================================
+    // HEARTBEAT REQUEST
+    // ========================================================
+
+    if (op === 1) {
+      this.sendHeartbeat();
+
+      return;
+    }
+
+    // ========================================================
+    // RECONNECT
+    // ========================================================
 
     if (op === 7) {
+      this.lastEvent =
+        "discord_requested_reconnect";
+
       this.cleanupSocket();
-      this.scheduleReconnect();
+
+      this.scheduleReconnect(
+        1000
+      );
 
       return;
     }
 
-    // --------------------------------------------------------
+    // ========================================================
     // INVALID SESSION
-    // --------------------------------------------------------
+    // ========================================================
 
     if (op === 9) {
       const resumable =
         Boolean(d);
 
+      this.lastEvent =
+        "invalid_session";
+
       if (!resumable) {
-        this.sessionId = null;
-        this.sequence = null;
+        this.sessionId =
+          null;
+
+        this.sequence =
+          null;
+
         this.resumeGatewayUrl =
           null;
       }
@@ -334,39 +670,79 @@ export class EternalTPGateway {
       return;
     }
 
-    // --------------------------------------------------------
-    // DISPATCH
-    // --------------------------------------------------------
+    // ========================================================
+    // HELLO
+    // ========================================================
 
-    if (op === 0) {
-      if (t === "READY") {
-        this.sessionId =
-          d?.session_id || null;
+    if (op === 10) {
+      this.lastEvent =
+        "hello";
 
-        this.resumeGatewayUrl =
-          d?.resume_gateway_url ||
-          null;
-
-        console.log(
-          "Eternal TP Discord Gateway READY"
+      const interval =
+        Number(
+          d?.heartbeat_interval
         );
 
-        console.log(
-          "Logged in as:",
-          d?.user?.username
+      if (
+        !Number.isFinite(
+          interval
+        ) ||
+        interval <= 0
+      ) {
+        throw new Error(
+          "Discord returned an invalid heartbeat interval."
         );
-
-        this.setOnlinePresence();
-
-        return;
       }
 
-      if (t === "RESUMED") {
+      console.log(
+        "Discord HELLO received. Heartbeat:",
+        interval
+      );
+
+      this.startHeartbeat(
+        interval
+      );
+
+      if (
+        this.sessionId &&
+        this.sequence !== null
+      ) {
         console.log(
-          "Discord Gateway session resumed."
+          "Attempting to resume Discord session."
         );
 
-        this.setOnlinePresence();
+        this.sendResume();
+      } else {
+        console.log(
+          "Identifying with Discord."
+        );
+
+        this.sendIdentify();
+      }
+
+      return;
+    }
+
+    // ========================================================
+    // HEARTBEAT ACK
+    // ========================================================
+
+    if (op === 11) {
+      this.lastHeartbeatAck =
+        true;
+
+      this.lastEvent =
+        "heartbeat_ack";
+
+      if (
+        this.heartbeatTimeout
+      ) {
+        clearTimeout(
+          this.heartbeatTimeout
+        );
+
+        this.heartbeatTimeout =
+          null;
       }
     }
   }
@@ -376,37 +752,55 @@ export class EternalTPGateway {
   // ==========================================================
 
   sendIdentify() {
-    this.send({
-      op: 2,
+    const sent =
+      this.send({
+        op: 2,
 
-      d: {
-        token:
-          this.env.DISCORD_TOKEN,
+        d: {
+          token:
+            this.env.DISCORD_TOKEN,
 
-        intents:
-          GATEWAY_INTENTS,
+          intents:
+            GATEWAY_INTENTS,
 
-        properties: {
-          os: "linux",
-          browser: "eternal-tp",
-          device: "eternal-tp"
-        },
+          properties: {
+            os:
+              "linux",
 
-        presence: {
-          since: null,
+            browser:
+              "eternal-tp",
 
-          activities: [
-            {
-              name: "Eternal TP",
-              type: 3
-            }
-          ],
+            device:
+              "eternal-tp"
+          },
 
-          status: "online",
-          afk: false
+          presence: {
+            since:
+              null,
+
+            activities: [
+              {
+                name:
+                  "Eternal TP",
+
+                // WATCHING
+                type: 3
+              }
+            ],
+
+            status:
+              "online",
+
+            afk:
+              false
+          }
         }
-      }
-    });
+      });
+
+    if (sent) {
+      this.lastEvent =
+        "identify_sent";
+    }
   }
 
   // ==========================================================
@@ -414,20 +808,26 @@ export class EternalTPGateway {
   // ==========================================================
 
   sendResume() {
-    this.send({
-      op: 6,
+    const sent =
+      this.send({
+        op: 6,
 
-      d: {
-        token:
-          this.env.DISCORD_TOKEN,
+        d: {
+          token:
+            this.env.DISCORD_TOKEN,
 
-        session_id:
-          this.sessionId,
+          session_id:
+            this.sessionId,
 
-        seq:
-          this.sequence
-      }
-    });
+          seq:
+            this.sequence
+        }
+      });
+
+    if (sent) {
+      this.lastEvent =
+        "resume_sent";
+    }
   }
 
   // ==========================================================
@@ -435,50 +835,76 @@ export class EternalTPGateway {
   // ==========================================================
 
   setOnlinePresence() {
-    this.send({
-      op: 3,
+    const sent =
+      this.send({
+        op: 3,
 
-      d: {
-        since: null,
+        d: {
+          since:
+            null,
 
-        activities: [
-          {
-            name: "Eternal TP",
-            type: 3
-          }
-        ],
+          activities: [
+            {
+              name:
+                "Eternal TP",
 
-        status: "online",
-        afk: false
-      }
-    });
+              // WATCHING
+              type: 3
+            }
+          ],
+
+          status:
+            "online",
+
+          afk:
+            false
+        }
+      });
+
+    if (sent) {
+      console.log(
+        "Discord presence set to online."
+      );
+    }
   }
 
   // ==========================================================
   // HEARTBEAT
   // ==========================================================
 
-  startHeartbeat(interval) {
+  startHeartbeat(
+    interval
+  ) {
     this.clearHeartbeat();
 
-    // Discord recommends jittering the first heartbeat.
+    this.lastHeartbeatAck =
+      true;
+
+    // Discord recommends jitter before the first heartbeat.
     const firstDelay =
       Math.floor(
         Math.random() *
         interval
       );
 
-    setTimeout(() => {
-      this.sendHeartbeat();
+    this.firstHeartbeatTimer =
+      setTimeout(
+        () => {
+          this.firstHeartbeatTimer =
+            null;
 
-      this.heartbeatTimer =
-        setInterval(
-          () => {
-            this.sendHeartbeat();
-          },
-          interval
-        );
-    }, firstDelay);
+          this.sendHeartbeat();
+
+          this.heartbeatTimer =
+            setInterval(
+              () => {
+                this.sendHeartbeat();
+              },
+              interval
+            );
+        },
+        firstDelay
+      );
   }
 
   sendHeartbeat() {
@@ -490,15 +916,24 @@ export class EternalTPGateway {
       return;
     }
 
+    // If Discord never ACKed the previous heartbeat,
+    // reconnect instead of keeping a dead connection.
     if (
       this.lastHeartbeatAck ===
       false
     ) {
+      this.lastError =
+        "Discord did not acknowledge the previous heartbeat.";
+
+      this.lastEvent =
+        "heartbeat_ack_missing";
+
       console.warn(
-        "Heartbeat ACK missing. Reconnecting."
+        this.lastError
       );
 
       this.cleanupSocket();
+
       this.scheduleReconnect();
 
       return;
@@ -507,10 +942,24 @@ export class EternalTPGateway {
     this.lastHeartbeatAck =
       false;
 
-    this.send({
-      op: 1,
-      d: this.sequence
-    });
+    const sent =
+      this.send({
+        op: 1,
+        d:
+          this.sequence
+      });
+
+    if (!sent) {
+      return;
+    }
+
+    if (
+      this.heartbeatTimeout
+    ) {
+      clearTimeout(
+        this.heartbeatTimeout
+      );
+    }
 
     this.heartbeatTimeout =
       setTimeout(
@@ -519,8 +968,14 @@ export class EternalTPGateway {
             this.lastHeartbeatAck ===
             false
           ) {
+            this.lastError =
+              "Discord heartbeat timed out.";
+
+            this.lastEvent =
+              "heartbeat_timeout";
+
             console.warn(
-              "Discord heartbeat timeout."
+              this.lastError
             );
 
             this.cleanupSocket();
@@ -542,6 +997,9 @@ export class EternalTPGateway {
       this.socket.readyState !==
         WebSocket.OPEN
     ) {
+      this.lastError =
+        "Attempted to send a Gateway payload while the WebSocket was not open.";
+
       return false;
     }
 
@@ -554,8 +1012,7 @@ export class EternalTPGateway {
 
       return true;
     } catch (error) {
-      console.error(
-        "Gateway send error:",
+      this.recordError(
         error
       );
 
@@ -577,6 +1034,9 @@ export class EternalTPGateway {
       return;
     }
 
+    this.lastEvent =
+      "reconnect_scheduled";
+
     this.reconnectTimer =
       setTimeout(
         () => {
@@ -585,8 +1045,7 @@ export class EternalTPGateway {
 
           this.ensureConnected()
             .catch(error => {
-              console.error(
-                "Reconnect failed:",
+              this.recordError(
                 error
               );
             });
@@ -609,10 +1068,21 @@ export class EternalTPGateway {
   }
 
   // ==========================================================
-  // CLEANUP
+  // HEARTBEAT CLEANUP
   // ==========================================================
 
   clearHeartbeat() {
+    if (
+      this.firstHeartbeatTimer
+    ) {
+      clearTimeout(
+        this.firstHeartbeatTimer
+      );
+
+      this.firstHeartbeatTimer =
+        null;
+    }
+
     if (
       this.heartbeatTimer
     ) {
@@ -639,23 +1109,34 @@ export class EternalTPGateway {
       true;
   }
 
+  // ==========================================================
+  // SOCKET CLEANUP
+  // ==========================================================
+
   cleanupSocket() {
     this.clearHeartbeat();
 
-    if (this.socket) {
-      try {
-        this.socket.close(
-          1000,
-          "Reconnect"
-        );
-      } catch {
-        // Ignore close errors.
-      }
+    const socket =
+      this.socket;
 
-      this.socket = null;
-    }
+    this.socket =
+      null;
 
     this.connecting =
       false;
+
+    if (socket) {
+      try {
+        socket.close(
+          1000,
+          "Reconnect"
+        );
+      } catch (error) {
+        console.warn(
+          "Gateway close error:",
+          error
+        );
+      }
+    }
   }
 }
