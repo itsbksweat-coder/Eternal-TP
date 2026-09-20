@@ -3,6 +3,7 @@ import {
   linkAccount,
   setPaused,
   redeemCode,
+  generateRedeemCode,
   addTime
 } from "./database.js";
 
@@ -19,23 +20,36 @@ import {
   validateWager
 } from "./games.js";
 
-// Discord interaction response types
 const CHANNEL_MESSAGE = 4;
-
-// Ephemeral: only command user sees response
 const EPHEMERAL = 64;
 
-function reply(content, ephemeral = true) {
+// Only these Discord accounts can use /generate.
+const GENERATE_ADMINS =
+  new Set([
+    "1167590082878902435"
+  ]);
+
+function reply(
+  content,
+  ephemeral = true
+) {
   return {
     type: CHANNEL_MESSAGE,
+
     data: {
       content,
-      flags: ephemeral ? EPHEMERAL : 0
+
+      flags:
+        ephemeral
+          ? EPHEMERAL
+          : 0
     }
   };
 }
 
-function getDiscordUserId(interaction) {
+function getDiscordUserId(
+  interaction
+) {
   return (
     interaction?.member?.user?.id ||
     interaction?.user?.id ||
@@ -43,12 +57,16 @@ function getDiscordUserId(interaction) {
   );
 }
 
-function getOption(interaction, name) {
+function getOption(
+  interaction,
+  name
+) {
   const options =
     interaction?.data?.options || [];
 
   return options.find(
-    option => option.name === name
+    option =>
+      option.name === name
   )?.value;
 }
 
@@ -56,12 +74,20 @@ function getOption(interaction, name) {
 // /link
 // ============================================================
 
-async function commandLink(interaction, env) {
+async function commandLink(
+  interaction,
+  env
+) {
   const discordId =
-    getDiscordUserId(interaction);
+    getDiscordUserId(
+      interaction
+    );
 
   const username =
-    getOption(interaction, "username");
+    getOption(
+      interaction,
+      "username"
+    );
 
   if (!username) {
     return reply(
@@ -87,7 +113,10 @@ async function commandLink(interaction, env) {
     );
 
   if (!roblox.ok) {
-    if (roblox.error === "USER_NOT_FOUND") {
+    if (
+      roblox.error ===
+      "USER_NOT_FOUND"
+    ) {
       return reply(
         "❌ I couldn't find that Roblox account."
       );
@@ -113,7 +142,7 @@ async function commandLink(interaction, env) {
       "DISCORD_ALREADY_LINKED"
     ) {
       return reply(
-        `❌ Your Discord account is already linked to **${result.user.roblox_username}**.`
+        `❌ Your Discord account is already linked to **${result.user?.roblox_username || "another Roblox account"}**.`
       );
     }
 
@@ -140,9 +169,14 @@ async function commandLink(interaction, env) {
 // /info
 // ============================================================
 
-async function commandInfo(interaction, env) {
+async function commandInfo(
+  interaction,
+  env
+) {
   const discordId =
-    getDiscordUserId(interaction);
+    getDiscordUserId(
+      interaction
+    );
 
   const user =
     await getUserByDiscordId(
@@ -183,7 +217,9 @@ async function commandPause(
   env
 ) {
   const discordId =
-    getDiscordUserId(interaction);
+    getDiscordUserId(
+      interaction
+    );
 
   const user =
     await getUserByDiscordId(
@@ -197,7 +233,9 @@ async function commandPause(
     );
   }
 
-  if (Number(user.paused) === 1) {
+  if (
+    Number(user.paused) === 1
+  ) {
     return reply(
       `⏸️ Eternal TP is already paused. You have **${formatTime(user.time_remaining)}** remaining.`
     );
@@ -223,7 +261,9 @@ async function commandUnpause(
   env
 ) {
   const discordId =
-    getDiscordUserId(interaction);
+    getDiscordUserId(
+      interaction
+    );
 
   const user =
     await getUserByDiscordId(
@@ -237,7 +277,9 @@ async function commandUnpause(
     );
   }
 
-  if (Number(user.paused) === 0) {
+  if (
+    Number(user.paused) === 0
+  ) {
     return reply(
       `▶️ Eternal TP is already active. You have **${formatTime(user.time_remaining)}** remaining.`
     );
@@ -271,7 +313,9 @@ async function commandRedeem(
   env
 ) {
   const discordId =
-    getDiscordUserId(interaction);
+    getDiscordUserId(
+      interaction
+    );
 
   const code =
     getOption(
@@ -327,6 +371,98 @@ async function commandRedeem(
 }
 
 // ============================================================
+// /generate
+// ============================================================
+
+async function commandGenerate(
+  interaction,
+  env
+) {
+  const discordId =
+    getDiscordUserId(
+      interaction
+    );
+
+  if (
+    !discordId ||
+    !GENERATE_ADMINS.has(
+      String(discordId)
+    )
+  ) {
+    return reply(
+      "❌ You don't have permission to generate Eternal TP keys."
+    );
+  }
+
+  const duration =
+    String(
+      getOption(
+        interaction,
+        "duration"
+      ) || ""
+    )
+      .trim()
+      .toLowerCase();
+
+  const seconds =
+    parseWager(duration);
+
+  if (
+    !seconds ||
+    seconds < 60
+  ) {
+    return reply(
+      "❌ Invalid duration. Examples: `1m`, `30m`, `1h`, `1d`, `1w`."
+    );
+  }
+
+  const result =
+    await generateRedeemCode(
+      env,
+      seconds
+    );
+
+  if (!result.ok) {
+    return reply(
+      "❌ I couldn't generate the key."
+    );
+  }
+
+  return reply(
+    [
+      "### 🔑 Eternal TP Key Generated",
+      "",
+      `**Key:** \`${result.code}\``,
+      `**Duration:** ${formatTime(result.seconds)}`,
+      "",
+      "This key can be redeemed once with `/redeem`."
+    ].join("\n")
+  );
+}
+
+// ============================================================
+// WAGER VALIDATION
+// ============================================================
+
+function wagerError(
+  validation,
+  user
+) {
+  if (
+    validation.error ===
+    "INSUFFICIENT_TIME"
+  ) {
+    return reply(
+      `❌ You only have **${formatTime(user.time_remaining)}** remaining.`
+    );
+  }
+
+  return reply(
+    "❌ Invalid wager. Examples: `5m`, `30m`, `1h`, `1d`, `1w`."
+  );
+}
+
+// ============================================================
 // /coinflip
 // ============================================================
 
@@ -335,7 +471,9 @@ async function commandCoinflip(
   env
 ) {
   const discordId =
-    getDiscordUserId(interaction);
+    getDiscordUserId(
+      interaction
+    );
 
   const user =
     await getUserByDiscordId(
@@ -362,31 +500,13 @@ async function commandCoinflip(
       wager,
       Number(
         user.time_remaining
-      ),
-      env.MAX_GAMBLE_SECONDS
+      )
     );
 
   if (!validation.ok) {
-    if (
-      validation.error ===
-      "INSUFFICIENT_TIME"
-    ) {
-      return reply(
-        `❌ You only have **${formatTime(user.time_remaining)}** remaining.`
-      );
-    }
-
-    if (
-      validation.error ===
-      "WAGER_TOO_LARGE"
-    ) {
-      return reply(
-        `❌ Maximum wager is **${formatTime(validation.max)}**.`
-      );
-    }
-
-    return reply(
-      "❌ Invalid wager. Examples: `5m`, `30m`, `1h`."
+    return wagerError(
+      validation,
+      user
     );
   }
 
@@ -419,8 +539,12 @@ async function commandCoinflip(
       change,
       "coinflip",
       JSON.stringify({
-        choice: game.choice,
-        result: game.result,
+        choice:
+          game.choice,
+
+        result:
+          game.result,
+
         wager
       })
     );
@@ -461,7 +585,9 @@ async function commandSpin(
   env
 ) {
   const discordId =
-    getDiscordUserId(interaction);
+    getDiscordUserId(
+      interaction
+    );
 
   const user =
     await getUserByDiscordId(
@@ -488,31 +614,13 @@ async function commandSpin(
       wager,
       Number(
         user.time_remaining
-      ),
-      env.MAX_GAMBLE_SECONDS
+      )
     );
 
   if (!validation.ok) {
-    if (
-      validation.error ===
-      "INSUFFICIENT_TIME"
-    ) {
-      return reply(
-        `❌ You only have **${formatTime(user.time_remaining)}** remaining.`
-      );
-    }
-
-    if (
-      validation.error ===
-      "WAGER_TOO_LARGE"
-    ) {
-      return reply(
-        `❌ Maximum wager is **${formatTime(validation.max)}**.`
-      );
-    }
-
-    return reply(
-      "❌ Invalid wager. Examples: `5m`, `30m`, `1h`."
+    return wagerError(
+      validation,
+      user
     );
   }
 
@@ -525,8 +633,6 @@ async function commandSpin(
       spin.multiplier
     );
 
-  // Safety check: never allow the wheel to
-  // subtract more than the wager.
   const safeChange =
     Math.max(
       -wager,
@@ -540,9 +646,12 @@ async function commandSpin(
       safeChange,
       "spin",
       JSON.stringify({
-        result: spin.label,
+        result:
+          spin.label,
+
         multiplier:
           spin.multiplier,
+
         wager
       })
     );
@@ -558,7 +667,9 @@ async function commandSpin(
   if (safeChange > 0) {
     resultText =
       `You won **${formatTime(safeChange)}**!`;
-  } else if (safeChange < 0) {
+  } else if (
+    safeChange < 0
+  ) {
     resultText =
       `You lost **${formatTime(Math.abs(safeChange))}**.`;
   } else {
@@ -614,6 +725,12 @@ export async function handleDiscordCommand(
 
     case "redeem":
       return commandRedeem(
+        interaction,
+        env
+      );
+
+    case "generate":
+      return commandGenerate(
         interaction,
         env
       );
