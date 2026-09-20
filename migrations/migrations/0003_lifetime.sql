@@ -1,7 +1,0 @@
-ALTER TABLE users
-ADD COLUMN lifetime INTEGER NOT NULL DEFAULT 0
-CHECK (lifetime IN (0, 1));
-
-ALTER TABLE redeem_codes
-ADD COLUMN lifetime INTEGER NOT NULL DEFAULT 0
-CHECK (lifetime IN (0, 1));
