@@ -16,6 +16,15 @@ import {
   handleAdminRequest
 } from "./admin.js";
 
+import {
+  EternalTPGateway
+} from "./gateway.js";
+
+// Cloudflare needs the Durable Object class exported.
+export {
+  EternalTPGateway
+};
+
 // ============================================================
 // RESPONSE HELPERS
 // ============================================================
@@ -50,6 +59,43 @@ function text(content, status = 200) {
       }
     }
   );
+}
+
+// ============================================================
+// GATEWAY
+// ============================================================
+
+function getGatewayStub(env) {
+  if (!env.GATEWAY) {
+    throw new Error(
+      "GATEWAY Durable Object binding is missing."
+    );
+  }
+
+  const id =
+    env.GATEWAY.idFromName(
+      "eternal-tp-discord"
+    );
+
+  return env.GATEWAY.get(id);
+}
+
+async function startGateway(env) {
+  const stub =
+    getGatewayStub(env);
+
+  const response =
+    await stub.fetch(
+      "https://gateway.internal/start"
+    );
+
+  if (!response.ok) {
+    throw new Error(
+      `Gateway start failed: ${response.status}`
+    );
+  }
+
+  return response;
 }
 
 // ============================================================
@@ -116,14 +162,16 @@ async function verifyDiscordRequest(
 }
 
 // ============================================================
-// DISCORD INTERACTION ENDPOINT
+// DISCORD INTERACTIONS
 // ============================================================
 
 async function handleDiscord(
   request,
   env
 ) {
-  if (request.method !== "POST") {
+  if (
+    request.method !== "POST"
+  ) {
     return text(
       "Method Not Allowed",
       405
@@ -146,7 +194,6 @@ async function handleDiscord(
   const interaction =
     verified.interaction;
 
-  // Discord uses PING to verify the endpoint.
   if (
     interaction.type ===
     InteractionType.PING
@@ -157,7 +204,6 @@ async function handleDiscord(
     });
   }
 
-  // Slash command
   if (
     interaction.type ===
     InteractionType.APPLICATION_COMMAND
@@ -206,23 +252,14 @@ async function handleDiscord(
 }
 
 // ============================================================
-// HEALTH
-// ============================================================
-
-function health() {
-  return json({
-    ok: true,
-    service: "Eternal TP",
-    version: "2.0.0",
-    status: "online"
-  });
-}
-
-// ============================================================
 // MAIN WORKER
 // ============================================================
 
 export default {
+  // ==========================================================
+  // HTTP
+  // ==========================================================
+
   async fetch(
     request,
     env,
@@ -235,6 +272,20 @@ export default {
       const pathname =
         url.pathname;
 
+      // Wake the Discord Gateway without delaying ordinary
+      // requests.
+      if (env.GATEWAY) {
+        ctx.waitUntil(
+          startGateway(env)
+            .catch(error => {
+              console.error(
+                "Gateway wake error:",
+                error
+              );
+            })
+        );
+      }
+
       // ======================================================
       // HOME
       // ======================================================
@@ -246,20 +297,56 @@ export default {
         return json({
           ok: true,
           service: "Eternal TP",
-          version: "2.0.0",
-          status: "online"
+          version: "2.1.0",
+          status: "online",
+          gateway: "enabled"
         });
       }
 
       // ======================================================
-      // HEALTH CHECK
+      // HEALTH
       // ======================================================
 
       if (
         pathname === "/health" &&
         request.method === "GET"
       ) {
-        return health();
+        return json({
+          ok: true,
+          service: "Eternal TP",
+          version: "2.1.0"
+        });
+      }
+
+      // ======================================================
+      // GATEWAY STATUS
+      // ======================================================
+
+      if (
+        pathname ===
+          "/gateway/status" &&
+        request.method === "GET"
+      ) {
+        const stub =
+          getGatewayStub(env);
+
+        return stub.fetch(
+          "https://gateway.internal/status"
+        );
+      }
+
+      // ======================================================
+      // GATEWAY START
+      // ======================================================
+
+      if (
+        pathname ===
+          "/gateway/start" &&
+        request.method === "POST"
+      ) {
+        return startGateway(
+          env
+        );
       }
 
       // ======================================================
@@ -308,10 +395,6 @@ export default {
         );
       }
 
-      // ======================================================
-      // NOT FOUND
-      // ======================================================
-
       return json(
         {
           ok: false,
@@ -334,5 +417,28 @@ export default {
         500
       );
     }
+  },
+
+  // ==========================================================
+  // CLOUDFLARE CRON
+  //
+  // Wakes the Durable Object every 5 minutes. The DO itself
+  // handles Discord heartbeats between these wake-ups.
+  // ==========================================================
+
+  async scheduled(
+    controller,
+    env,
+    ctx
+  ) {
+    ctx.waitUntil(
+      startGateway(env)
+        .catch(error => {
+          console.error(
+            "Scheduled Gateway wake error:",
+            error
+          );
+        })
+    );
   }
 };
