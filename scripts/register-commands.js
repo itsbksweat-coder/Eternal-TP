@@ -2,15 +2,11 @@
 // Eternal TP - Discord Slash Command Registration
 // ============================================================
 //
-// Run with:
-//
-//   DISCORD_TOKEN=... DISCORD_APPLICATION_ID=... npm run commands
-//
 // Windows PowerShell:
 //
-//   $env:DISCORD_TOKEN="YOUR_TOKEN"
-//   $env:DISCORD_APPLICATION_ID="YOUR_APPLICATION_ID"
-//   npm run commands
+// $env:DISCORD_TOKEN="YOUR_TOKEN"
+// $env:DISCORD_APPLICATION_ID="YOUR_APPLICATION_ID"
+// npm run commands
 //
 // ============================================================
 
@@ -39,27 +35,22 @@ if (!APPLICATION_ID) {
   process.exit(1);
 }
 
-// ============================================================
-// DISCORD OPTION TYPES
-// ============================================================
-
 const STRING = 3;
-
-// ============================================================
-// COMMANDS
-// ============================================================
 
 const commands = [
   {
     name: "link",
+
     description:
       "Link your Roblox account to Eternal TP",
 
     options: [
       {
         name: "username",
+
         description:
           "Your Roblox username",
+
         type: STRING,
         required: true
       }
@@ -68,32 +59,57 @@ const commands = [
 
   {
     name: "info",
+
     description:
       "View your Eternal TP account"
   },
 
   {
     name: "pause",
+
     description:
       "Pause your Eternal TP time"
   },
 
   {
     name: "unpause",
+
     description:
       "Resume your Eternal TP time"
   },
 
   {
     name: "redeem",
+
     description:
       "Redeem an Eternal TP time code",
 
     options: [
       {
         name: "code",
+
         description:
           "Your redeem code",
+
+        type: STRING,
+        required: true
+      }
+    ]
+  },
+
+  {
+    name: "generate",
+
+    description:
+      "Generate an Eternal TP time key",
+
+    options: [
+      {
+        name: "duration",
+
+        description:
+          "Duration such as 30m, 1h, 1d or 1w",
+
         type: STRING,
         required: true
       }
@@ -102,22 +118,27 @@ const commands = [
 
   {
     name: "coinflip",
+
     description:
       "Gamble some of your Eternal TP time",
 
     options: [
       {
         name: "amount",
+
         description:
           "Amount to wager, for example 10m or 1h",
+
         type: STRING,
         required: true
       },
 
       {
         name: "choice",
+
         description:
           "Heads or tails",
+
         type: STRING,
         required: true,
 
@@ -126,6 +147,7 @@ const commands = [
             name: "Heads",
             value: "heads"
           },
+
           {
             name: "Tails",
             value: "tails"
@@ -137,14 +159,17 @@ const commands = [
 
   {
     name: "spin",
+
     description:
       "Spin the Eternal TP time wheel",
 
     options: [
       {
         name: "amount",
+
         description:
           "Amount to wager, for example 10m or 1h",
+
         type: STRING,
         required: true
       }
@@ -152,18 +177,10 @@ const commands = [
   }
 ];
 
-// ============================================================
-// API ENDPOINT
-// ============================================================
-
 const endpoint =
   GUILD_ID
     ? `https://discord.com/api/v10/applications/${APPLICATION_ID}/guilds/${GUILD_ID}/commands`
     : `https://discord.com/api/v10/applications/${APPLICATION_ID}/commands`;
-
-// ============================================================
-// REGISTER
-// ============================================================
 
 console.log(
   GUILD_ID
