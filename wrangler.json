@@ -1,23 +1,41 @@
-"durable_objects": {
-  "bindings": [
-    {
-      "name": "GATEWAY",
-      "class_name": "EternalTPGateway"
-    }
-  ]
-},
+{
+  "name": "eternal-tp",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-20",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
 
-"migrations": [
-  {
-    "tag": "v1",
-    "new_sqlite_classes": [
-      "EternalTPGateway"
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "eternal-tp-db",
+      "database_id": "5ecaaa37-49b1-4b5e-9b73-f88f0f21f97f",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GATEWAY",
+        "class_name": "EternalTPGateway"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "EternalTPGateway"
+      ]
+    }
+  ],
+
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
     ]
   }
-],
-
-"triggers": {
-  "crons": [
-    "*/5 * * * *"
-  ]
 }
