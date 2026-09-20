@@ -4,23 +4,5 @@
   "compatibility_date": "2026-09-20",
   "compatibility_flags": [
     "nodejs_compat"
-  ],
-
-  // After creating your D1 database, replace this with its real ID.
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "eternal-tp-db",
-      "database_id": "PUT_YOUR_D1_DATABASE_ID_HERE",
-      "migrations_dir": "migrations"
-    }
-  ],
-
-  "vars": {
-    "DISCORD_APPLICATION_ID": "PUT_YOUR_DISCORD_APPLICATION_ID_HERE",
-
-    // Maximum amount a user can wager at once, in seconds.
-    // 3600 = 1 hour.
-    "MAX_GAMBLE_SECONDS": "3600"
-  }
+  ]
 }
