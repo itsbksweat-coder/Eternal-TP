@@ -1,0 +1,23 @@
+{
+  "name": "eternal-tp",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Eternal TP - Cloudflare Worker, Discord bot and Roblox integration",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "commands": "node scripts/register-commands.js",
+    "db:local": "wrangler d1 migrations apply DB --local",
+    "db:remote": "wrangler d1 migrations apply DB --remote"
+  },
+  "dependencies": {
+    "discord-interactions": "^4.4.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
